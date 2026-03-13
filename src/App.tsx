@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, Menu, Search, X, Code, Sparkles, SlidersHorizontal, ChevronRight, ZoomIn, ZoomOut, ArrowRight, Layers, Cpu, PaintBucket } from 'lucide-react';
 import { Canvas, useFrame, useThree, extend } from '@react-three/fiber';
-import { Environment, ContactShadows, PresentationControls, Float, MeshDistortMaterial, shaderMaterial, useGLTF } from '@react-three/drei';
+import { Environment, ContactShadows, PresentationControls, Float, MeshDistortMaterial, shaderMaterial } from '@react-three/drei';
 import * as THREE from 'three';
 
 // --- Custom GLSL Shader for Liquid Glass Background ---
@@ -195,15 +195,15 @@ function Mannequin() {
 
   const skinMaterial = (
     <meshPhysicalMaterial 
-      color="#ffffff" 
-      transmission={0.9} 
+      color="#ffe0bd" 
+      transmission={0.2} 
       opacity={1} 
       metalness={0.1} 
-      roughness={0.1} 
-      ior={1.5} 
-      thickness={0.5} 
-      specularIntensity={1} 
-      clearcoat={1} 
+      roughness={0.4} 
+      ior={1.4} 
+      thickness={2} 
+      specularIntensity={0.5} 
+      clearcoat={0.1} 
     />
   );
 
@@ -249,31 +249,9 @@ function Mannequin() {
 }
 
 function Garment({ activeItem }: { activeItem: typeof FASHION_ITEMS[0] }) {
-  // Load a real 3D clothing model (T-shirt)
-  const { scene } = useGLTF('https://vazxmixjsiawhamofees.supabase.co/storage/v1/object/public/models/t-shirt/model.gltf');
-  const meshRef = useRef<THREE.Group>(null);
+  const materialRef = useRef<any>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
   const [morphTarget, setMorphTarget] = useState(0);
-
-  // Clone the scene and upgrade materials to MeshPhysicalMaterial for luxury rendering
-  const clonedScene = useMemo(() => {
-    const clone = scene.clone();
-    clone.traverse((child: any) => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-        
-        // Upgrade material to physical for better reflections and clearcoat
-        child.material = new THREE.MeshPhysicalMaterial({
-          color: '#ffffff',
-          roughness: 0.5,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-          clearcoat: 0.0,
-        });
-      }
-    });
-    return clone;
-  }, [scene]);
 
   // Trigger morph animation on item change
   useEffect(() => {
@@ -283,42 +261,48 @@ function Garment({ activeItem }: { activeItem: typeof FASHION_ITEMS[0] }) {
   }, [activeItem]);
 
   useFrame(() => {
+    if (materialRef.current) {
+      const targetColor = new THREE.Color(activeItem.color);
+      materialRef.current.color.lerp(targetColor, 0.08);
+      
+      const isLiquidSatin = activeItem.materialType === 'liquid-satin';
+      const isMatte = activeItem.materialType === 'matte-cotton';
+      const isSilk = activeItem.materialType === 'silk';
+      const isObsidian = activeItem.materialType === 'obsidian';
+
+      // Dynamic Fabric Physics & Material Properties
+      materialRef.current.roughness = THREE.MathUtils.lerp(materialRef.current.roughness, isMatte ? 0.8 : isLiquidSatin ? 0.05 : isSilk ? 0.3 : 0.1, 0.08);
+      materialRef.current.metalness = THREE.MathUtils.lerp(materialRef.current.metalness, isObsidian ? 0.9 : isLiquidSatin ? 0.4 : 0.1, 0.08);
+      materialRef.current.clearcoat = THREE.MathUtils.lerp(materialRef.current.clearcoat, isLiquidSatin || isObsidian ? 1.0 : 0.0, 0.08);
+      
+      // Distort parameters for cloth physics simulation
+      materialRef.current.distort = THREE.MathUtils.lerp(materialRef.current.distort, isLiquidSatin ? 0.25 : isSilk ? 0.1 : 0.02, 0.05);
+      materialRef.current.speed = THREE.MathUtils.lerp(materialRef.current.speed, isLiquidSatin ? 3 : 1, 0.05);
+    }
+
     if (meshRef.current) {
       // Instant Morphing Effect (Auto-Wear)
-      const baseScale = 2.8; // Base scale for the loaded GLTF model
       const currentScale = meshRef.current.scale.x;
-      const targetScale = baseScale + (morphTarget * 0.3);
+      const targetScale = 1 + (morphTarget * 0.1);
       const newScale = THREE.MathUtils.lerp(currentScale, targetScale, 0.15);
       meshRef.current.scale.set(newScale, newScale, newScale);
     }
-
-    // Dynamically update the material properties of the loaded 3D model
-    clonedScene.traverse((child: any) => {
-      if (child.isMesh && child.material) {
-        const mat = child.material;
-        const targetColor = new THREE.Color(activeItem.color);
-        mat.color.lerp(targetColor, 0.08);
-        
-        const isLiquidSatin = activeItem.materialType === 'liquid-satin';
-        const isMatte = activeItem.materialType === 'matte-cotton';
-        const isSilk = activeItem.materialType === 'silk';
-        const isObsidian = activeItem.materialType === 'obsidian';
-
-        // Dynamic Fabric Physics & Material Properties
-        mat.roughness = THREE.MathUtils.lerp(mat.roughness, isMatte ? 0.8 : isLiquidSatin ? 0.05 : isSilk ? 0.3 : 0.1, 0.08);
-        mat.metalness = THREE.MathUtils.lerp(mat.metalness, isObsidian ? 0.9 : isLiquidSatin ? 0.4 : 0.1, 0.08);
-        mat.clearcoat = THREE.MathUtils.lerp(mat.clearcoat, isLiquidSatin || isObsidian ? 1.0 : 0.0, 0.08);
-      }
-    });
   });
 
   return (
-    <group ref={meshRef} position={[0, 0.6, 0]}>
-      <primitive object={clonedScene} />
-    </group>
+    <mesh ref={meshRef} position={[0, 0.5, 0]} castShadow receiveShadow>
+      {/* The Garment Geometry - shaped like a dress, open ended */}
+      <cylinderGeometry args={[0.32, 0.48, 1.4, 64, 64, true]} />
+      <MeshDistortMaterial 
+        ref={materialRef}
+        color={activeItem.color}
+        envMapIntensity={2}
+        clearcoatRoughness={0.1}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
   );
 }
-useGLTF.preload('https://vazxmixjsiawhamofees.supabase.co/storage/v1/object/public/models/t-shirt/model.gltf');
 
 // --- Pages ---
 
